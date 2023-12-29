@@ -36,9 +36,24 @@ class OBJECT_PT_multicam_panel(bpy.types.Panel):
 
     bpy.types.Object.stereo_focal_distance = bpy.props.FloatProperty(
         attr="stereo_focal_distance",
-        name='stereo_focal_distance', 
-        description='Distance to the Stereo-Window (Zero Parallax) in Blender Units',
-        min=0.0, soft_min=0.0, max=1000, soft_max=1000, default=20)
+        name="stereo_focal_distance",
+        description="Distance to the Stereo-Window (Zero Parallax) in Blender Units",
+        min=0.0, soft_min=0.0, max=1000, soft_max=1000, default=20
+    )
+
+    bpy.types.Object.matrix_vertical_distance = bpy.props.IntProperty(
+        attr="matrix_vertical_distance",
+        name="matrix_vertical_distance",
+        description="Distance between cameras in vertical direction",
+        min=0, soft_min=0, max=100, soft_max=100, default=20
+    )
+
+    bpy.types.Object.matrix_horizontal_distance = bpy.props.IntProperty(
+        attr="matrix_horizontal_distance",
+        name="matrix_horizontal_distance",
+        description="Distance between cameras in horizontal direction",
+        min=0, soft_min=0, max=100, soft_max=100, default=20
+    )
 
     # user interface
     def draw(self, context):
@@ -52,16 +67,68 @@ class OBJECT_PT_multicam_panel(bpy.types.Panel):
         row = layout.row()
         row.prop(camera, "camera_type", text="Stereo Camera Type", expand=True)
 
-        row = layout.row()
-        row.prop(camera, "stereo_focal_distance", text="Zero Parallax")
+        match camera.camera_type:
+            case "SINGLE":
+                self.draw_single_camera_sub_layout(context)
+            case "STEREO":
+                self.draw_stereo_camera_sub_layout(context)
+            case "MATRIX":
+                self.draw_matrix_camera_sub_layout(context)
+            case "MESH":
+                self.draw_mesh_camera_sub_layout(context)
 
-        row = layout.row()
-        row.operator('multicam.set_cameras')
+    def draw_single_camera_sub_layout(self, context):
+        row = self.layout.row()
+        row.operator('multicam.set_single_camera')
+
+    def draw_stereo_camera_sub_layout(self, context):
+        camera = context.scene.camera
+        row1 = self.layout.row(align=True)
+        column1 = row1.column()
+        column1.alignment = "RIGHT"
+        column1.label(text="Zero Parallax")
+        column2 = row1.column()
+        column2.prop(camera, "stereo_focal_distance", text="", slider=True)
+
+        row2 = self.layout.row()
+        row2.operator('multicam.set_stereo_cameras')
+
+    def draw_matrix_camera_sub_layout(self, context):
+        camera = context.scene.camera
+        row1 = self.layout.row(align=True)
+        column1 = row1.column()
+        column1.alignment = "RIGHT"
+        column1.label(text="Vertical distance")
+        column1.label(text="Horizontal distance")
+        column2 = row1.column()
+        column2.prop(camera, "matrix_vertical_distance", text="", slider=True)
+        column2.prop(camera, "matrix_horizontal_distance", text="", slider=True)
+
+        row2 = self.layout.row()
+        row2.operator('multicam.set_matrix_cameras')
+
+    def draw_mesh_camera_sub_layout(self, context):
+        row = self.layout.row()
+        row.operator('multicam.set_mesh_cameras')
 
 
-class OBJECT_OT_set_cameras(bpy.types.Operator):
-    bl_label = 'Set Stereo Camera'
-    bl_idname = 'multicam.set_cameras'
+class ObjectOTSetSingleCamera(bpy.types.Operator):
+    bl_label = 'Set Single Camera'
+    bl_idname = 'multicam.set_single_camera'
+    bl_description = 'Setup the Camera'
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        self.set_camera(context)
+        return {'FINISHED'}
+
+    def set_camera(self, context):
+        return {'FINISHED'}
+
+
+class ObjectOTSetStereoCameras(bpy.types.Operator):
+    bl_label = 'Set Stereo Cameras'
+    bl_idname = 'multicam.set_stereo_cameras'
     bl_description = 'Setup the Cameras'
     bl_options = {'REGISTER', 'UNDO'}
 
@@ -151,14 +218,48 @@ class OBJECT_OT_set_cameras(bpy.types.Operator):
         return {'FINISHED'}
 
 
+class ObjectOTSetMatrixCameras(bpy.types.Operator):
+    bl_label = 'Set Matrix Cameras'
+    bl_idname = 'multicam.set_matrix_cameras'
+    bl_description = 'Setup the Cameras'
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        self.set_camera(context)
+        return {'FINISHED'}
+
+    def set_camera(self, context):
+        return {'FINISHED'}
+
+
+class ObjectOTSetMeshCameras(bpy.types.Operator):
+    bl_label = 'Set Mesh Cameras'
+    bl_idname = 'multicam.set_mesh_cameras'
+    bl_description = 'Setup the Cameras'
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        self.set_camera(context)
+        return {'FINISHED'}
+
+    def set_camera(self, context):
+        return {'FINISHED'}
+
+
 def register():
     bpy.utils.register_class(OBJECT_PT_multicam_panel)
-    bpy.utils.register_class(OBJECT_OT_set_cameras)
+    bpy.utils.register_class(ObjectOTSetSingleCamera)
+    bpy.utils.register_class(ObjectOTSetStereoCameras)
+    bpy.utils.register_class(ObjectOTSetMatrixCameras)
+    bpy.utils.register_class(ObjectOTSetMeshCameras)
 
 
 def unregister():
     bpy.utils.unregister_class(OBJECT_PT_multicam_panel)
-    bpy.utils.unregister_class(OBJECT_OT_set_cameras)
+    bpy.utils.unregister_class(ObjectOTSetSingleCamera)
+    bpy.utils.unregister_class(ObjectOTSetStereoCameras)
+    bpy.utils.unregister_class(ObjectOTSetMatrixCameras)
+    bpy.utils.unregister_class(ObjectOTSetMeshCameras)
 
 
 if __name__ == "__main__":
