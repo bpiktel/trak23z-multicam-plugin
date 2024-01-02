@@ -55,6 +55,20 @@ class OBJECT_PT_multicam_panel(bpy.types.Panel):
         min=0, soft_min=0, max=100, soft_max=100, default=20
     )
 
+    bpy.types.Object.matrix_vertical_amount = bpy.props.IntProperty(
+        attr="matrix_vertical_amount",
+        name="matrix_vertical_amount",
+        description="Amount of cameras in vertical axis",
+        min=2, soft_min=0, max=15, soft_max=15, default=3
+    )
+
+    bpy.types.Object.matrix_horizontal_amount = bpy.props.IntProperty(
+        attr="matrix_horizontal_amount",
+        name="matrix_horizontal_amount",
+        description="Amount of cameras in horizontal axis",
+        min=2, soft_min=0, max=15, soft_max=15, default=3
+    )
+
     # user interface
     def draw(self, context):
         layout = self.layout
@@ -83,7 +97,7 @@ class OBJECT_PT_multicam_panel(bpy.types.Panel):
 
     def draw_stereo_camera_sub_layout(self, context):
         camera = context.scene.camera
-        row1 = self.layout.row(align=True)
+        row1 = self.layout.grid_flow(columns=2, even_columns=False, even_rows=False, align=True)
         column1 = row1.column()
         column1.alignment = "RIGHT"
         column1.label(text="Zero Parallax")
@@ -95,12 +109,17 @@ class OBJECT_PT_multicam_panel(bpy.types.Panel):
 
     def draw_matrix_camera_sub_layout(self, context):
         camera = context.scene.camera
-        row1 = self.layout.row(align=True)
+        row1 = self.layout.grid_flow(columns=2, even_columns=False, even_rows=False, align=True)
+
         column1 = row1.column()
         column1.alignment = "RIGHT"
+        column1.label(text="Vertical amount")
+        column1.label(text="Horizontal amount")
         column1.label(text="Vertical distance")
         column1.label(text="Horizontal distance")
         column2 = row1.column()
+        column2.prop(camera, "matrix_vertical_amount", text="", slider=True)
+        column2.prop(camera, "matrix_horizontal_amount", text="", slider=True)
         column2.prop(camera, "matrix_vertical_distance", text="", slider=True)
         column2.prop(camera, "matrix_horizontal_distance", text="", slider=True)
 
@@ -264,3 +283,4 @@ def unregister():
 
 if __name__ == "__main__":
     register()
+    # unregister()
