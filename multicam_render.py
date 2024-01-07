@@ -1,5 +1,6 @@
 import bpy
 import os
+import json
 
 bl_info = {
     "category": "Camera",
@@ -184,13 +185,41 @@ class OUTPUT_PT_multicam_panel(bpy.types.Panel):
     bl_category = "Multi camera"
     bl_label = "Multi camera output"
 
+    bpy.types.Scene.renderQueue = bpy.props.StringProperty(
+        attr="renderQueue",
+        name="renderQueue",
+        description="Queue of cameras to render",
+        default="[]"
+    )
+    bpy.types.Scene.rendering = bpy.props.BoolProperty(
+        attr="rendering",
+        name="rendering",
+        description="Render in progress",
+        default=False
+    )
+    bpy.types.Scene.cancelRender = bpy.props.BoolProperty(
+        attr="cancelRender",
+        name="cancelRender",
+        description="Render canceled",
+        default=False
+    )
+    bpy.types.Scene.baseOutputPath = bpy.props.StringProperty(
+        attr="baseOutputPath",
+        name="baseOutputPath",
+        description="Base output path",
+        default=""
+    )
+
     @classmethod
     def poll(cls, context):
         return context.active_object is not None and context.active_object.type == 'CAMERA' and context.active_object.camera_type != 'SINGLE'
 
     def draw(self, context):
         row = self.layout.row()
-        row.operator('multicam.render_multi_cameras')
+        column1 = row.column()
+        column1.operator('multicam.render_multi_cameras')
+        column2 = row.column()
+        column2.operator('multicam.cancel_rendering')
 
 
 class OutputOTRenderMultiCameras(bpy.types.Operator):
@@ -199,26 +228,108 @@ class OutputOTRenderMultiCameras(bpy.types.Operator):
     bl_description = 'Render all cameras'
     bl_options = {'REGISTER'}
 
-    def execute(self, context):
-        output_dir = bpy.context.scene.render.filepath
+    timerEvent = None
 
-        # render all cameras
+    # TODO: change to render init, render complete
+
+    # Rendering callback functions
+    @staticmethod
+    def pre_render(scene, *args):
+        print('pre_render')
+        scene.rendering = True
+        scene.baseOutputPath = bpy.context.scene.render.filepath
+
+    @staticmethod
+    def post_render(scene, *args):
+        print('post_render')
+        renderQueue = json.loads(scene.renderQueue)
+        renderQueue = renderQueue[1:] # remove finished item from render queue
+        scene.renderQueue = json.dumps(renderQueue)
+        scene.rendering = False
+        bpy.context.scene.render.filepath = scene.baseOutputPath # restore base output path
+
+    @staticmethod
+    def on_render_cancel(context, *args):
+        print('on_render_cancel')
+        context.scene.cancelRender = True
+        bpy.context.scene.render.filepath = context.scene.baseOutputPath # restore base output path
+
+    def execute(self, context):
+        context.scene.cancelRender = False
+        context.scene.rendering = False
+        
+        # fill renderQueue with all cameras
+        renderQueue = []
         base_camera = context.scene.camera
         cameras = [obj for obj in base_camera.children if obj.type == 'CAMERA']
+
+        for camera in cameras:
+            renderQueue.append(camera.name)
+
+        context.scene.renderQueue = json.dumps(renderQueue)
         
-        try:
-            for camera in cameras:
-                if not os.path.exists(os.path.join(output_dir, camera.name)):
-                    os.makedirs(os.path.join(output_dir, camera.name))
-                bpy.context.scene.render.filepath = os.path.join(output_dir, camera.name, '')
-                print(bpy.ops.render.render('EXEC_DEFAULT', animation=True))
-        except:
-            print("Rendering failed")
-        finally:
-            bpy.context.scene.render.filepath = output_dir
+        # Register callback functions
+        bpy.app.handlers.render_pre.append(self.pre_render)
+        bpy.app.handlers.render_post.append(self.post_render)
+        bpy.app.handlers.render_cancel.append(self.on_render_cancel)
+        # Create timer event that runs every second to check if render renderQueue needs to be updated
+        self.timerEvent = context.window_manager.event_timer_add(1.0, window=context.window)
+        
+        # register this as running in background 
+        context.window_manager.modal_handler_add(self)
+        return {"RUNNING_MODAL"}
 
+    def modal(self, context, event):
+        renderQueue = json.loads(context.scene.renderQueue)
+        rendering = context.scene.rendering
+        cancelRender = context.scene.cancelRender
+
+        if event.type == 'TIMER':                                 
+            # If cancelled or no items in queue to render, finish.
+            if not renderQueue or cancelRender is True:
+                
+                # remove all render callbacks and cancel timer event
+                bpy.app.handlers.render_pre.remove(self.pre_render)
+                bpy.app.handlers.render_post.remove(self.post_render)
+                bpy.app.handlers.render_cancel.remove(self.on_render_cancel)
+                context.window_manager.event_timer_remove(self.timerEvent)
+                
+                self.report({"INFO"},"RENDER QUEUE FINISHED")
+                return {"FINISHED"} 
+            # nothing is rendering and there are items in queue
+            elif rendering is False: 
+                sc = bpy.context.scene
+                cameraName = renderQueue[0]
+                
+                # change scene active camera
+                if cameraName in sc.objects:
+                    sc.camera = bpy.data.objects[cameraName]
+                else:
+                    self.report({'ERROR_INVALID_INPUT'}, message="Can not find camera " + cameraName + " in scene!")
+                    return {'CANCELLED'}
+                    
+                self.report({"INFO"}, "Rendering camera: " + cameraName)
+                # set output file path as base path + camera name
+                output_dir = bpy.context.scene.render.filepath
+                if not os.path.exists(os.path.join(output_dir, cameraName)):
+                    os.makedirs(os.path.join(output_dir, cameraName))
+                bpy.context.scene.render.filepath = os.path.join(output_dir, cameraName, '')
+                print("Out Path: " + sc.render.filepath)
+
+                # start new render                
+                bpy.ops.render.render("INVOKE_DEFAULT", animation=True)
+        return {"PASS_THROUGH"}
+
+
+class OutputOTCancelRendering(bpy.types.Operator):
+    bl_label = 'Cancel'
+    bl_idname = 'multicam.cancel_rendering'
+    bl_description = 'Cancel rendering queue'
+    bl_options = {'REGISTER'}
+
+    def execute(self, context):
+        context.scene.cancelRender = True
         return {'FINISHED'}
-
 
 class ObjectOTSetSingleCamera(bpy.types.Operator):
     bl_label = 'Set Single Camera'
@@ -320,24 +431,24 @@ class ObjectOTSetMeshCameras(bpy.types.Operator):
         return {'FINISHED'}
 
 
-def register():
-    bpy.utils.register_class(OBJECT_PT_multicam_panel)
-    bpy.utils.register_class(ObjectOTSetSingleCamera)
-    bpy.utils.register_class(ObjectOTSetStereoCameras)
-    bpy.utils.register_class(ObjectOTSetMatrixCameras)
-    bpy.utils.register_class(ObjectOTSetMeshCameras)
-    bpy.utils.register_class(OutputOTRenderMultiCameras)
-    bpy.utils.register_class(OUTPUT_PT_multicam_panel)
+classes = (
+    OBJECT_PT_multicam_panel,
+    ObjectOTSetSingleCamera,
+    ObjectOTSetStereoCameras,
+    ObjectOTSetMatrixCameras,
+    ObjectOTSetMeshCameras,
+    OutputOTRenderMultiCameras,
+    OutputOTCancelRendering,
+    OUTPUT_PT_multicam_panel
+)
 
+def register():
+    for c in classes:
+        bpy.utils.register_class(c)
 
 def unregister():
-    bpy.utils.unregister_class(OBJECT_PT_multicam_panel)
-    bpy.utils.unregister_class(ObjectOTSetSingleCamera)
-    bpy.utils.unregister_class(ObjectOTSetStereoCameras)
-    bpy.utils.unregister_class(ObjectOTSetMatrixCameras)
-    bpy.utils.unregister_class(ObjectOTSetMeshCameras)
-    bpy.utils.unregister_class(OutputOTRenderMultiCameras)
-    bpy.utils.unregister_class(OUTPUT_PT_multicam_panel)
+    for c in classes:
+        bpy.utils.unregister_class(c)
 
 
 if __name__ == "__main__":
