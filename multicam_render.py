@@ -1,4 +1,5 @@
 import bpy
+import os
 
 bl_info = {
     "category": "Camera",
@@ -11,17 +12,57 @@ bl_info = {
 }
 
 
+DEFAULT_CAMERA_NAME = "Camera"
+class CameraUtils():
+    @staticmethod
+    def reset_multicamera(context):
+        # reset multicamera by deleting all children
+        base_camera = context.scene.camera
+        if base_camera.multicam_child and base_camera.parent is not None and base_camera.parent.type == 'CAMERA':
+            base_camera = base_camera.parent
+            context.scene.camera = base_camera
+
+        del_names = [obj.name for obj in base_camera.children]
+
+        with context.temp_override(selected_objects=base_camera.children):
+            bpy.ops.object.delete()
+
+        for name in del_names:
+            bpy.data.cameras.remove(bpy.data.cameras[name], do_unlink=True)
+
+    @staticmethod
+    def create_child_camera(suffix, parent):
+        cam_data = bpy.data.cameras.new(DEFAULT_CAMERA_NAME + suffix)
+        cam_obj = bpy.data.objects.new(DEFAULT_CAMERA_NAME + suffix, cam_data)
+        bpy.context.scene.collection.objects.link(cam_obj)
+        cam_obj.multicam_child = True
+        cam_obj.parent = parent
+        return cam_data, cam_obj
+
+
 class OBJECT_PT_multicam_panel(bpy.types.Panel):
     # panel location
     bl_space_type = "PROPERTIES"
     bl_region_type = "WINDOW"
+    bl_context = "data"
 
     bl_category = "Multi camera"
     bl_label = "Multi camera properties"
 
     @classmethod
     def poll(cls, context):
-        return context.active_object.type == 'CAMERA'
+        return context.active_object is not None and context.active_object.type == 'CAMERA'
+    
+    def update_camera_type(self, context):
+        match self.camera_type:
+            case "SINGLE":
+                bpy.ops.multicam.set_single_camera('INVOKE_DEFAULT')
+            case "STEREO":
+                bpy.ops.multicam.set_stereo_cameras('INVOKE_DEFAULT')
+            case "MATRIX":
+                bpy.ops.multicam.set_matrix_cameras('INVOKE_DEFAULT')
+            case "MESH":
+                bpy.ops.multicam.set_mesh_cameras('INVOKE_DEFAULT')
 
     bpy.types.Object.camera_type = bpy.props.EnumProperty(
         attr="camera_type",
@@ -31,7 +72,15 @@ class OBJECT_PT_multicam_panel(bpy.types.Panel):
                ("MESH", "Mesh", "Mesh of cameras around object")),
         name="camera_type",
         description="Camera type (single camera / multiple cameras in different configurations)",
-        default="SINGLE"
+        default="SINGLE",
+        update=update_camera_type
+    )
+
+    bpy.types.Object.multicam_child = bpy.props.BoolProperty(
+        attr="multicam_child",
+        name="multicam_child",
+        description="Camera is a multicam child",
+        default=False
     )
 
     bpy.types.Object.stereo_focal_distance = bpy.props.FloatProperty(
@@ -73,10 +122,9 @@ class OBJECT_PT_multicam_panel(bpy.types.Panel):
     def draw(self, context):
         layout = self.layout
 
-        camera = context.scene.camera
-        # tmp_cam = context.scene.camera
-        if camera.name[:2] == "L_" or camera.name[:2] == "R_":
-            camera = bpy.data.objects[camera.name[2:]]
+        camera = context.active_object
+        if camera.parent is not None and camera.parent.type == 'CAMERA':
+            camera = camera.parent
 
         row = layout.row()
         row.prop(camera, "camera_type", text="Stereo Camera Type", expand=True)
@@ -93,7 +141,6 @@ class OBJECT_PT_multicam_panel(bpy.types.Panel):
 
     def draw_single_camera_sub_layout(self, context):
         row = self.layout.row()
-        row.operator('multicam.set_single_camera')
 
     def draw_stereo_camera_sub_layout(self, context):
         camera = context.scene.camera
@@ -105,7 +152,6 @@ class OBJECT_PT_multicam_panel(bpy.types.Panel):
         column2.prop(camera, "stereo_focal_distance", text="", slider=True)
 
         row2 = self.layout.row()
-        row2.operator('multicam.set_stereo_cameras')
 
     def draw_matrix_camera_sub_layout(self, context):
         camera = context.scene.camera
@@ -124,11 +170,54 @@ class OBJECT_PT_multicam_panel(bpy.types.Panel):
         column2.prop(camera, "matrix_horizontal_distance", text="", slider=True)
 
         row2 = self.layout.row()
-        row2.operator('multicam.set_matrix_cameras')
 
     def draw_mesh_camera_sub_layout(self, context):
         row = self.layout.row()
-        row.operator('multicam.set_mesh_cameras')
+
+
+class OUTPUT_PT_multicam_panel(bpy.types.Panel):
+    # panel location
+    bl_space_type = "PROPERTIES"
+    bl_region_type = "WINDOW"
+    bl_context = "output"
+
+    bl_category = "Multi camera"
+    bl_label = "Multi camera output"
+
+    @classmethod
+    def poll(cls, context):
+        return context.active_object is not None and context.active_object.type == 'CAMERA' and context.active_object.camera_type != 'SINGLE'
+
+    def draw(self, context):
+        row = self.layout.row()
+        row.operator('multicam.render_multi_cameras')
+
+
+class OutputOTRenderMultiCameras(bpy.types.Operator):
+    bl_label = 'Render Multi Cameras'
+    bl_idname = 'multicam.render_multi_cameras'
+    bl_description = 'Render all cameras'
+    bl_options = {'REGISTER'}
+
+    def execute(self, context):
+        output_dir = bpy.context.scene.render.filepath
+
+        # render all cameras
+        base_camera = context.scene.camera
+        cameras = [obj for obj in base_camera.children if obj.type == 'CAMERA']
+        
+        try:
+            for camera in cameras:
+                if not os.path.exists(os.path.join(output_dir, camera.name)):
+                    os.makedirs(os.path.join(output_dir, camera.name))
+                bpy.context.scene.render.filepath = os.path.join(output_dir, camera.name, '')
+                print(bpy.ops.render.render('EXEC_DEFAULT', animation=True))
+        except:
+            print("Rendering failed")
+        finally:
+            bpy.context.scene.render.filepath = output_dir
+
+        return {'FINISHED'}
 
 
 class ObjectOTSetSingleCamera(bpy.types.Operator):
@@ -142,6 +231,8 @@ class ObjectOTSetSingleCamera(bpy.types.Operator):
         return {'FINISHED'}
 
     def set_camera(self, context):
+        CameraUtils.reset_multicamera(context)
+
         return {'FINISHED'}
 
 
@@ -156,82 +247,46 @@ class ObjectOTSetStereoCameras(bpy.types.Operator):
         return {'FINISHED'}
 
     def set_camera(self, context):
-        tmp_camera = context.scene.camera
-        if tmp_camera.name[:2] == "L_" or tmp_camera.name[:2] == "R_":
-            center_cam = bpy.data.objects[tmp_camera.name[2:]]
-        else:
-            center_cam = tmp_camera
-        active_cam = bpy.data.objects[center_cam.name]
-        context.scene.camera = active_cam
-        camera = bpy.context.scene.camera
+        CameraUtils.reset_multicamera(context)
+        scene = context.scene
+        base_camera = scene.camera
 
-        # check for existing stereo camera objects
-        left_cam_exists = 0
-        right_cam_exists = 0
-        zero_plane_exists = 0
-        near_plane_exists = 0
-        far_plane_exists = 0
-        scn = bpy.context.scene
-        for ob in scn.collection.objects:
-            if ob.name == "L_" + center_cam.name:
-                left_cam_exists = 1
-            if ob.name == "R_" + center_cam.name:
-                right_cam_exists = 1
-            if ob.name == "SW_" + center_cam.name:
-                zero_plane_exists = 1
-            if ob.name == "NP_" + center_cam.name:
-                near_plane_exists = 1
-            if ob.name == "FP_" + center_cam.name:
-                far_plane_exists = 1
+        # add a new left camera
+        left_cam_data, left_cam_obj = CameraUtils.create_child_camera('_L', base_camera)
 
-        # add a new or (if exists) get the left camera
-        if left_cam_exists == 0:
-            left_cam = bpy.data.cameras.new('L_' + center_cam.name)
-            left_cam_obj = bpy.data.objects.new('L_' + center_cam.name, left_cam)
-            scn.collection.objects.link(left_cam_obj)
-        else:
-            left_cam_obj = bpy.data.objects['L_' + center_cam.name]
-            left_cam = left_cam_obj.data
-
-        # add a new or (if exists) get the right camera
-        if right_cam_exists == 0:
-            right_cam = bpy.data.cameras.new('R_' + center_cam.name)
-            right_cam_obj = bpy.data.objects.new('R_' + center_cam.name, right_cam)
-            scn.collection.objects.link(right_cam_obj)
-        else:
-            right_cam_obj = bpy.data.objects['R_' + center_cam.name]
-            right_cam = right_cam_obj.data
+        # add a new right camera
+        right_cam_data, right_cam_obj = CameraUtils.create_child_camera('_R', base_camera)
 
         # temp location
         # set the left camera
-        left_cam.angle = center_cam.data.angle
-        left_cam.clip_start = center_cam.data.clip_start
-        left_cam.clip_end = center_cam.data.clip_end
+        right_cam_data.angle = base_camera.data.angle
+        right_cam_data.clip_start = base_camera.data.clip_start
+        right_cam_data.clip_end = base_camera.data.clip_end
         # left_cam.dof_distance = center_cam.data.dof_distance
         # left_cam.dof_object = center_cam.data.dof_object
-        left_cam.shift_y = center_cam.data.shift_y
-        left_cam.shift_x = (1 / 2) + center_cam.data.shift_x
-        left_cam_obj.location = -(100 / 1000) / 2, 0, 0
-        left_cam_obj.rotation_euler = (0.0, 0.0, 0.0)  # reset
+        right_cam_data.shift_y = base_camera.data.shift_y
+        right_cam_data.shift_x = (1 / 2) + base_camera.data.shift_x
+        right_cam_obj.location = -(100 / 1000) / 2, 0, 0
+        right_cam_obj.rotation_euler = (0.0, 0.0, 0.0)  # reset
 
         # set the right camera
-        right_cam.angle = center_cam.data.angle
-        right_cam.clip_start = center_cam.data.clip_start
-        right_cam.clip_end = center_cam.data.clip_end
+        right_cam_data.angle = base_camera.data.angle
+        right_cam_data.clip_start = base_camera.data.clip_start
+        right_cam_data.clip_end = base_camera.data.clip_end
         # right_cam.dof_distance = center_cam.data.dof_distance
         # right_cam.dof_object = center_cam.data.dof_object
-        right_cam.shift_y = center_cam.data.shift_y
-        right_cam.shift_x = -(1 / 2) + center_cam.data.shift_x
+        right_cam_data.shift_y = base_camera.data.shift_y
+        right_cam_data.shift_x = -(1 / 2) + base_camera.data.shift_x
         right_cam_obj.location = (100 / 1000) / 2, 0, 0
         right_cam_obj.rotation_euler = (0.0, 0.0, 0.0)  # reset
 
-        left_cam_obj.parent = center_cam
-        right_cam_obj.parent = center_cam
+        right_cam_obj.parent = base_camera
+        right_cam_obj.parent = base_camera
 
         # select the center camera (object mode)
         bpy.ops.object.select_all(action='DESELECT')
-        bpy.context.scene.camera = tmp_camera
-        # bpy.context.scene.objects.active = tmp_camera
+        base_camera.select_set(True)
+        bpy.context.scene.objects.active = base_camera
         # tmp_camera.select = True
 
         return {'FINISHED'}
@@ -271,6 +326,8 @@ def register():
     bpy.utils.register_class(ObjectOTSetStereoCameras)
     bpy.utils.register_class(ObjectOTSetMatrixCameras)
     bpy.utils.register_class(ObjectOTSetMeshCameras)
+    bpy.utils.register_class(OutputOTRenderMultiCameras)
+    bpy.utils.register_class(OUTPUT_PT_multicam_panel)
 
 
 def unregister():
@@ -279,6 +336,8 @@ def unregister():
     bpy.utils.unregister_class(ObjectOTSetStereoCameras)
     bpy.utils.unregister_class(ObjectOTSetMatrixCameras)
     bpy.utils.unregister_class(ObjectOTSetMeshCameras)
+    bpy.utils.unregister_class(OutputOTRenderMultiCameras)
+    bpy.utils.unregister_class(OUTPUT_PT_multicam_panel)
 
 
 if __name__ == "__main__":
