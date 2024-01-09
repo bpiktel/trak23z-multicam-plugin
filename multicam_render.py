@@ -14,6 +14,7 @@ bl_info = {
 
 
 DEFAULT_CAMERA_NAME = "Camera"
+
 class CameraUtils():
     @staticmethod
     def reset_multicamera(context):
@@ -88,35 +89,40 @@ class OBJECT_PT_multicam_panel(bpy.types.Panel):
         attr="stereo_focal_distance",
         name="stereo_focal_distance",
         description="Distance to the Stereo-Window (Zero Parallax) in Blender Units",
-        min=0.0, soft_min=0.0, max=1000, soft_max=1000, default=20
+        min=0.0, soft_min=0.0, max=1000, soft_max=1000, default=20,
+        update=update_camera_type
     )
 
     bpy.types.Object.matrix_vertical_distance = bpy.props.IntProperty(
         attr="matrix_vertical_distance",
         name="matrix_vertical_distance",
         description="Distance between cameras in vertical direction",
-        min=0, soft_min=0, max=100, soft_max=100, default=20
+        min=0, soft_min=0, max=10000, soft_max=1000, default=100,
+        update=update_camera_type
     )
 
     bpy.types.Object.matrix_horizontal_distance = bpy.props.IntProperty(
         attr="matrix_horizontal_distance",
         name="matrix_horizontal_distance",
         description="Distance between cameras in horizontal direction",
-        min=0, soft_min=0, max=100, soft_max=100, default=20
+        min=0, soft_min=0, max=10000, soft_max=1000, default=100,
+        update=update_camera_type
     )
 
     bpy.types.Object.matrix_vertical_amount = bpy.props.IntProperty(
         attr="matrix_vertical_amount",
         name="matrix_vertical_amount",
         description="Amount of cameras in vertical axis",
-        min=2, soft_min=0, max=15, soft_max=15, default=3
+        min=2, soft_min=0, max=15, soft_max=15, default=3,
+        update=update_camera_type
     )
 
     bpy.types.Object.matrix_horizontal_amount = bpy.props.IntProperty(
         attr="matrix_horizontal_amount",
         name="matrix_horizontal_amount",
         description="Amount of cameras in horizontal axis",
-        min=2, soft_min=0, max=15, soft_max=15, default=3
+        min=2, soft_min=0, max=15, soft_max=15, default=3,
+        update=update_camera_type
     )
 
     # user interface
@@ -230,29 +236,27 @@ class OutputOTRenderMultiCameras(bpy.types.Operator):
 
     timerEvent = None
 
-    # TODO: change to render init, render complete
-
     # Rendering callback functions
     @staticmethod
     def pre_render(scene, *args):
-        print('pre_render')
         scene.rendering = True
-        scene.baseOutputPath = bpy.context.scene.render.filepath
 
     @staticmethod
     def post_render(scene, *args):
-        print('post_render')
+        print("post render")
         renderQueue = json.loads(scene.renderQueue)
-        renderQueue = renderQueue[1:] # remove finished item from render queue
+        renderQueue.pop(0) # remove finished item from render queue
         scene.renderQueue = json.dumps(renderQueue)
+        print('remaining queue: ' + scene.renderQueue)
         scene.rendering = False
-        bpy.context.scene.render.filepath = scene.baseOutputPath # restore base output path
+        scene.camera = scene.camera.parent # restore base camera
+        bpy.context.view_layer.update() 
 
     @staticmethod
-    def on_render_cancel(context, *args):
-        print('on_render_cancel')
-        context.scene.cancelRender = True
-        bpy.context.scene.render.filepath = context.scene.baseOutputPath # restore base output path
+    def on_render_cancel(scene, *args):
+        scene.cancelRender = True
+        scene.render.filepath = scene.baseOutputPath # restore base output path
+        scene.camera = scene.camera.parent # restore base camera
 
     def execute(self, context):
         context.scene.cancelRender = False
@@ -266,20 +270,24 @@ class OutputOTRenderMultiCameras(bpy.types.Operator):
         for camera in cameras:
             renderQueue.append(camera.name)
 
+        print(renderQueue)
+
         context.scene.renderQueue = json.dumps(renderQueue)
+        context.scene.baseOutputPath = context.scene.render.filepath
         
         # Register callback functions
-        bpy.app.handlers.render_pre.append(self.pre_render)
-        bpy.app.handlers.render_post.append(self.post_render)
+        bpy.app.handlers.render_init.append(self.pre_render)
+        bpy.app.handlers.render_complete.append(self.post_render)
         bpy.app.handlers.render_cancel.append(self.on_render_cancel)
         # Create timer event that runs every second to check if render renderQueue needs to be updated
         self.timerEvent = context.window_manager.event_timer_add(1.0, window=context.window)
-        
+
         # register this as running in background 
         context.window_manager.modal_handler_add(self)
         return {"RUNNING_MODAL"}
 
     def modal(self, context, event):
+        bpy.context.view_layer.update()
         renderQueue = json.loads(context.scene.renderQueue)
         rendering = context.scene.rendering
         cancelRender = context.scene.cancelRender
@@ -287,19 +295,27 @@ class OutputOTRenderMultiCameras(bpy.types.Operator):
         if event.type == 'TIMER':                                 
             # If cancelled or no items in queue to render, finish.
             if not renderQueue or cancelRender is True:
-                
                 # remove all render callbacks and cancel timer event
-                bpy.app.handlers.render_pre.remove(self.pre_render)
-                bpy.app.handlers.render_post.remove(self.post_render)
+                bpy.app.handlers.render_init.remove(self.pre_render)
+                bpy.app.handlers.render_complete.remove(self.post_render)
                 bpy.app.handlers.render_cancel.remove(self.on_render_cancel)
                 context.window_manager.event_timer_remove(self.timerEvent)
+
+                context.scene.renderQueue = json.dumps([])
+                context.scene.render.filepath = context.scene.baseOutputPath # restore base output path
+                context.scene.baseOutputPath = ""
                 
                 self.report({"INFO"},"RENDER QUEUE FINISHED")
                 return {"FINISHED"} 
             # nothing is rendering and there are items in queue
-            elif rendering is False: 
-                sc = bpy.context.scene
+            elif rendering is False:
+                bpy.context.view_layer.update()
+
+                sc = context.scene
                 cameraName = renderQueue[0]
+
+                if sc.baseOutputPath:
+                    sc.render.filepath = sc.baseOutputPath # restore base output path
                 
                 # change scene active camera
                 if cameraName in sc.objects:
@@ -310,13 +326,15 @@ class OutputOTRenderMultiCameras(bpy.types.Operator):
                     
                 self.report({"INFO"}, "Rendering camera: " + cameraName)
                 # set output file path as base path + camera name
+                original_output_dir = bpy.context.scene.render.filepath
                 output_dir = bpy.context.scene.render.filepath
                 if not os.path.exists(os.path.join(output_dir, cameraName)):
                     os.makedirs(os.path.join(output_dir, cameraName))
                 bpy.context.scene.render.filepath = os.path.join(output_dir, cameraName, '')
-                print("Out Path: " + sc.render.filepath)
 
-                # start new render                
+                sc.baseOutputPath = original_output_dir
+                bpy.context.view_layer.update()
+                # start new render
                 bpy.ops.render.render("INVOKE_DEFAULT", animation=True)
         return {"PASS_THROUGH"}
 
@@ -330,6 +348,7 @@ class OutputOTCancelRendering(bpy.types.Operator):
     def execute(self, context):
         context.scene.cancelRender = True
         return {'FINISHED'}
+
 
 class ObjectOTSetSingleCamera(bpy.types.Operator):
     bl_label = 'Set Single Camera'
@@ -414,6 +433,28 @@ class ObjectOTSetMatrixCameras(bpy.types.Operator):
         return {'FINISHED'}
 
     def set_camera(self, context):
+        CameraUtils.reset_multicamera(context)
+        scene = context.scene
+        base_camera = scene.camera
+
+        w_amount = base_camera.matrix_horizontal_amount
+        h_amount = base_camera.matrix_vertical_amount
+
+        for y_idx in range(h_amount):
+            for x_idx in range(w_amount):
+                suffix = '_Y' + str(y_idx) + '_X' + str(x_idx)
+                cam_data, cam_obj = CameraUtils.create_child_camera(suffix, base_camera)
+
+                cam_data.angle = base_camera.data.angle
+                cam_data.clip_start = base_camera.data.clip_start
+                cam_data.clip_end = base_camera.data.clip_end
+                # cam.dof_distance = center_cam.data.dof_distance
+                # cam.dof_object = center_cam.data.dof_object
+                cam_data.shift_y = base_camera.data.shift_y
+                cam_data.shift_x = base_camera.data.shift_x
+                cam_obj.location = (x_idx * base_camera.matrix_horizontal_distance) / 100, (y_idx * base_camera.matrix_vertical_distance) / 100, 0
+                cam_obj.rotation_euler = (0.0, 0.0, 0.0)
+
         return {'FINISHED'}
 
 
@@ -453,4 +494,3 @@ def unregister():
 
 if __name__ == "__main__":
     register()
-    # unregister()
