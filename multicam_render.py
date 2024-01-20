@@ -97,10 +97,26 @@ class OBJECT_PT_multicam_panel(bpy.types.Panel):
     )
 
     # Stereo camera properties
+    bpy.types.Object.is_convergent = bpy.props.BoolProperty(
+        attr="is_convergent",
+        name="is_convergent",
+        description="If checked, the cameras will focus on one point. If not, they'll be parallel.",
+        default=False,
+        update=update_camera_type
+    )
+
     bpy.types.Object.stereo_focal_distance = bpy.props.FloatProperty(
         attr="stereo_focal_distance",
         name="stereo_focal_distance",
         description="Distance to the Stereo-Window (Zero Parallax) in Blender Units",
+        min=0.0, soft_min=0.0, max=1000, soft_max=1000, default=20,
+        update=update_camera_type
+    )
+
+    bpy.types.Object.cameras_spacing = bpy.props.FloatProperty(
+        attr="cameras_spacing",
+        name="cameras_spacing",
+        description="Distance between the cameras in Blender Units",
         min=0.0, soft_min=0.0, max=1000, soft_max=1000, default=20,
         update=update_camera_type
     )
@@ -212,11 +228,16 @@ class OBJECT_PT_multicam_panel(bpy.types.Panel):
             columns=2, even_columns=False, even_rows=False, align=True)
         column1 = row1.column()
         column1.alignment = "RIGHT"
+        column1.label(text="Convergent")
         column1.label(text="Zero Parallax")
-        column2 = row1.column()
-        column2.prop(camera, "stereo_focal_distance", text="", slider=True)
+        column1.label(text="Cameras spacing")
 
-        row2 = self.layout.row()
+        column2 = row1.column()
+        column2.prop(camera, "is_convergent", text="")  # , toggle=-1
+        column2.prop(camera, "stereo_focal_distance", text="", slider=True)
+        column2.prop(camera, "cameras_spacing", text="", slider=True)
+
+        row3 = self.layout.row()
 
     def draw_matrix_camera_sub_layout(self, context):
         camera = context.scene.camera
@@ -535,6 +556,11 @@ class ObjectOTSetStereoCameras(bpy.types.Operator):
         scene = context.scene
         base_camera = scene.camera
 
+        is_convergent = base_camera.is_convergent
+
+        camera_offset = base_camera.cameras_spacing / 2
+        angle = (math.pi / 2 - math.atan(base_camera.stereo_focal_distance / camera_offset)) if is_convergent else 0
+
         # add a new left camera
         left_cam_data, left_cam_obj = CameraUtils.create_child_camera(
             '_L', base_camera)
@@ -545,15 +571,15 @@ class ObjectOTSetStereoCameras(bpy.types.Operator):
 
         # temp location
         # set the left camera
-        right_cam_data.angle = base_camera.data.angle
-        right_cam_data.clip_start = base_camera.data.clip_start
-        right_cam_data.clip_end = base_camera.data.clip_end
+        left_cam_data.angle = base_camera.data.angle
+        left_cam_data.clip_start = base_camera.data.clip_start
+        left_cam_data.clip_end = base_camera.data.clip_end
         # left_cam.dof_distance = center_cam.data.dof_distance
         # left_cam.dof_object = center_cam.data.dof_object
-        right_cam_data.shift_y = base_camera.data.shift_y
-        right_cam_data.shift_x = (1 / 2) + base_camera.data.shift_x
-        right_cam_obj.location = -(100 / 1000) / 2, 0, 0
-        right_cam_obj.rotation_euler = (0.0, 0.0, 0.0)  # reset
+        left_cam_data.shift_y = base_camera.data.shift_y
+        left_cam_data.shift_x = base_camera.data.shift_x  # (1 / 2) + base_camera.data.shift_x
+        left_cam_obj.location = -camera_offset / 100, 0, 0
+        left_cam_obj.rotation_euler = (0.0, -angle, 0.0)  # reset
 
         # set the right camera
         right_cam_data.angle = base_camera.data.angle
@@ -562,11 +588,11 @@ class ObjectOTSetStereoCameras(bpy.types.Operator):
         # right_cam.dof_distance = center_cam.data.dof_distance
         # right_cam.dof_object = center_cam.data.dof_object
         right_cam_data.shift_y = base_camera.data.shift_y
-        right_cam_data.shift_x = -(1 / 2) + base_camera.data.shift_x
-        right_cam_obj.location = (100 / 1000) / 2, 0, 0
-        right_cam_obj.rotation_euler = (0.0, 0.0, 0.0)  # reset
+        right_cam_data.shift_x = base_camera.data.shift_x  # -(1 / 2) + base_camera.data.shift_x
+        right_cam_obj.location = camera_offset / 100, 0, 0
+        right_cam_obj.rotation_euler = (0.0, angle, 0.0)  # reset
 
-        right_cam_obj.parent = base_camera
+        left_cam_obj.parent = base_camera
         right_cam_obj.parent = base_camera
 
         # select the center camera (object mode)
