@@ -7,7 +7,7 @@ bl_info = {
     "name": "Multi camera Rendering Plugin",
     "author": "TRAK",
     "version": (0, 0, 1),
-    "blender": (2, 80, 0),
+    "blender": (3, 0, 0),
     "location": "Camera > Properties Panel > Multi camera",
     "description": "Utils for setting up multiple camera matrices.",
 }
@@ -35,11 +35,17 @@ class CameraUtils():
 
     @staticmethod
     def create_child_camera(suffix, parent):
+        master_collection = bpy.context.scene.collection
+        current_collection = parent.users_collection[0]
         cam_data = bpy.data.cameras.new(DEFAULT_CAMERA_NAME + suffix)
         cam_obj = bpy.data.objects.new(DEFAULT_CAMERA_NAME + suffix, cam_data)
         bpy.context.scene.collection.objects.link(cam_obj)
         cam_obj.multicam_child = True
         cam_obj.parent = parent
+
+        current_collection.objects.link(cam_obj)
+        master_collection.objects.unlink(cam_obj)
+
         return cam_data, cam_obj
 
 
@@ -202,6 +208,12 @@ class OUTPUT_PT_multicam_panel(bpy.types.Panel):
         description="Frame by frame rendering mode",
         default=False
     )
+    bpy.types.Scene.copyMainCameraProperties = bpy.props.BoolProperty(
+        attr="copyMainCameraProperties",
+        name="copyMainCameraProperties",
+        description="Copy main camera properties to all cameras",
+        default=True
+    )
 
     # Current render queue state
     bpy.types.Scene.renderQueue = bpy.props.StringProperty(
@@ -270,6 +282,9 @@ class OUTPUT_PT_multicam_panel(bpy.types.Panel):
         else:
             row2.prop(context.scene, "frameByFrame",
                       text="Frame by frame rendering")
+        row3 = column.row()
+        row3.prop(context.scene, "copyMainCameraProperties",
+                  text="Copy main camera properties to all cameras")
 
 
 class OutputOTRenderMultiCameras(bpy.types.Operator):
@@ -387,6 +402,9 @@ class OutputOTRenderMultiCameras(bpy.types.Operator):
                 # change scene active camera
                 if cameraName in scene.objects:
                     scene.camera = bpy.data.objects[cameraName]
+                    if scene.copyMainCameraProperties is True:
+                        # copy camera properties from base camera
+                        scene.camera.data = scene.camera.parent.data.copy()
                 else:
                     self.report(
                         {'ERROR_INVALID_INPUT'}, message="Can not find camera " + cameraName + " in scene!")
