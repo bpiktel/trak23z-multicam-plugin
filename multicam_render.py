@@ -15,6 +15,7 @@ bl_info = {
 
 DEFAULT_CAMERA_NAME = "Camera"
 
+
 class CameraUtils():
     @staticmethod
     def reset_multicamera(context):
@@ -54,7 +55,7 @@ class OBJECT_PT_multicam_panel(bpy.types.Panel):
     @classmethod
     def poll(cls, context):
         return context.active_object is not None and context.active_object.type == 'CAMERA'
-    
+
     def update_camera_type(self, context):
         match self.camera_type:
             case "SINGLE":
@@ -151,7 +152,8 @@ class OBJECT_PT_multicam_panel(bpy.types.Panel):
 
     def draw_stereo_camera_sub_layout(self, context):
         camera = context.scene.camera
-        row1 = self.layout.grid_flow(columns=2, even_columns=False, even_rows=False, align=True)
+        row1 = self.layout.grid_flow(
+            columns=2, even_columns=False, even_rows=False, align=True)
         column1 = row1.column()
         column1.alignment = "RIGHT"
         column1.label(text="Zero Parallax")
@@ -162,7 +164,8 @@ class OBJECT_PT_multicam_panel(bpy.types.Panel):
 
     def draw_matrix_camera_sub_layout(self, context):
         camera = context.scene.camera
-        row1 = self.layout.grid_flow(columns=2, even_columns=False, even_rows=False, align=True)
+        row1 = self.layout.grid_flow(
+            columns=2, even_columns=False, even_rows=False, align=True)
 
         column1 = row1.column()
         column1.alignment = "RIGHT"
@@ -174,7 +177,8 @@ class OBJECT_PT_multicam_panel(bpy.types.Panel):
         column2.prop(camera, "matrix_vertical_amount", text="", slider=True)
         column2.prop(camera, "matrix_horizontal_amount", text="", slider=True)
         column2.prop(camera, "matrix_vertical_distance", text="", slider=True)
-        column2.prop(camera, "matrix_horizontal_distance", text="", slider=True)
+        column2.prop(camera, "matrix_horizontal_distance",
+                     text="", slider=True)
 
         row2 = self.layout.row()
 
@@ -191,6 +195,15 @@ class OUTPUT_PT_multicam_panel(bpy.types.Panel):
     bl_category = "Multi camera"
     bl_label = "Multi camera output"
 
+    # Options
+    bpy.types.Scene.frameByFrame = bpy.props.BoolProperty(
+        attr="frameByFrame",
+        name="frameByFrame",
+        description="Frame by frame rendering mode",
+        default=False
+    )
+
+    # Current render queue state
     bpy.types.Scene.renderQueue = bpy.props.StringProperty(
         attr="renderQueue",
         name="renderQueue",
@@ -215,23 +228,54 @@ class OUTPUT_PT_multicam_panel(bpy.types.Panel):
         description="Base output path",
         default=""
     )
+    bpy.types.Scene.baseStartFrame = bpy.props.IntProperty(
+        attr="baseStartFrame",
+        name="baseStartFrame",
+        description="Saved start frame of scene",
+        default=0
+    )
+    bpy.types.Scene.baseEndFrame = bpy.props.IntProperty(
+        attr="baseEndFrame",
+        name="baseEndFrame",
+        description="Saved end frame of scene",
+        default=0
+    )
 
     @classmethod
     def poll(cls, context):
         return context.active_object is not None and context.active_object.type == 'CAMERA' and context.active_object.camera_type != 'SINGLE'
 
+    @staticmethod
+    def isVideoRender(format):
+        videoFormats = [
+            'AVI_JPEG',
+            'AVI_RAW',
+            'FFMPEG'
+        ]
+        return format in videoFormats
+
     def draw(self, context):
-        row = self.layout.row()
-        column1 = row.column()
-        column1.operator('multicam.render_multi_cameras')
-        column2 = row.column()
-        column2.operator('multicam.cancel_rendering')
+        scene = context.scene
+        column = self.layout.column()
+        row1 = column.row()
+        if scene.rendering is True:
+            row1.operator('multicam.cancel_rendering')
+        else:
+            row1.operator('multicam.render_multi_cameras')
+        row2 = column.row()
+        if self.isVideoRender(
+                scene.render.image_settings.file_format):
+            row2.label(
+                text="Frame by frame rendering unavailable")
+        else:
+            row2.prop(context.scene, "frameByFrame",
+                      text="Frame by frame rendering")
 
 
 class OutputOTRenderMultiCameras(bpy.types.Operator):
     bl_label = 'Render Multi Cameras'
     bl_idname = 'multicam.render_multi_cameras'
-    bl_description = 'Render all cameras'
+    bl_description = 'Render selected multicamera'
     bl_options = {'REGISTER'}
 
     timerEvent = None
@@ -243,56 +287,72 @@ class OutputOTRenderMultiCameras(bpy.types.Operator):
 
     @staticmethod
     def post_render(scene, *args):
-        print("post render")
         renderQueue = json.loads(scene.renderQueue)
-        renderQueue.pop(0) # remove finished item from render queue
+        renderQueue.pop(0)  # remove finished item from render queue
         scene.renderQueue = json.dumps(renderQueue)
         print('remaining queue: ' + scene.renderQueue)
         scene.rendering = False
-        scene.camera = scene.camera.parent # restore base camera
-        bpy.context.view_layer.update() 
+        scene.camera = scene.camera.parent  # restore base camera
+        bpy.context.view_layer.update()
 
     @staticmethod
     def on_render_cancel(scene, *args):
         scene.cancelRender = True
-        scene.render.filepath = scene.baseOutputPath # restore base output path
-        scene.camera = scene.camera.parent # restore base camera
+        scene.render.filepath = scene.baseOutputPath  # restore base output path
+        scene.camera = scene.camera.parent  # restore base camera
+        # restore selected frame range
+        scene.frame_start = scene.baseStartFrame
+        scene.frame_end = scene.baseEndFrame
 
     def execute(self, context):
-        context.scene.cancelRender = False
-        context.scene.rendering = False
-        
+        scene = context.scene
+        scene.cancelRender = False
+        scene.rendering = False
+
+        if OUTPUT_PT_multicam_panel.isVideoRender(scene.render.image_settings.file_format):
+            scene.frameByFrame = False
+
         # fill renderQueue with all cameras
         renderQueue = []
-        base_camera = context.scene.camera
+        base_camera = scene.camera
         cameras = [obj for obj in base_camera.children if obj.type == 'CAMERA']
 
-        for camera in cameras:
-            renderQueue.append(camera.name)
+        if scene.frameByFrame is True:
+            for i in range(scene.frame_start, scene.frame_end + 1, scene.frame_step):
+                for camera in cameras:
+                    renderQueue.append(
+                        {'camera': camera.name, 'frameStart': i, 'frameEnd': i}
+                    )
+        else:
+            for camera in cameras:
+                renderQueue.append(
+                    {'camera': camera.name, 'frameStart': scene.frame_start, 'frameEnd': scene.frame_end})
 
-        print(renderQueue)
+        scene.renderQueue = json.dumps(renderQueue)
+        scene.baseOutputPath = scene.render.filepath
+        scene.baseStartFrame = scene.frame_start
+        scene.baseEndFrame = scene.frame_end
 
-        context.scene.renderQueue = json.dumps(renderQueue)
-        context.scene.baseOutputPath = context.scene.render.filepath
-        
         # Register callback functions
         bpy.app.handlers.render_init.append(self.pre_render)
         bpy.app.handlers.render_complete.append(self.post_render)
         bpy.app.handlers.render_cancel.append(self.on_render_cancel)
         # Create timer event that runs every second to check if render renderQueue needs to be updated
-        self.timerEvent = context.window_manager.event_timer_add(1.0, window=context.window)
+        self.timerEvent = context.window_manager.event_timer_add(
+            1.0, window=context.window)
 
-        # register this as running in background 
+        # register this as running in background
         context.window_manager.modal_handler_add(self)
         return {"RUNNING_MODAL"}
 
     def modal(self, context, event):
         bpy.context.view_layer.update()
-        renderQueue = json.loads(context.scene.renderQueue)
-        rendering = context.scene.rendering
-        cancelRender = context.scene.cancelRender
+        scene = context.scene
+        renderQueue = json.loads(scene.renderQueue)
+        rendering = scene.rendering
+        cancelRender = scene.cancelRender
 
-        if event.type == 'TIMER':                                 
+        if event.type == 'TIMER':
             # If cancelled or no items in queue to render, finish.
             if not renderQueue or cancelRender is True:
                 # remove all render callbacks and cancel timer event
@@ -301,38 +361,49 @@ class OutputOTRenderMultiCameras(bpy.types.Operator):
                 bpy.app.handlers.render_cancel.remove(self.on_render_cancel)
                 context.window_manager.event_timer_remove(self.timerEvent)
 
-                context.scene.renderQueue = json.dumps([])
-                context.scene.render.filepath = context.scene.baseOutputPath # restore base output path
-                context.scene.baseOutputPath = ""
-                
-                self.report({"INFO"},"RENDER QUEUE FINISHED")
-                return {"FINISHED"} 
+                scene.renderQueue = json.dumps([])
+                # restore base output path
+                scene.render.filepath = scene.baseOutputPath
+                scene.baseOutputPath = ""
+                # restore selected frame range
+                scene.frame_start = scene.baseStartFrame
+                scene.frame_end = scene.baseEndFrame
+
+                self.report({"INFO"}, "RENDER QUEUE FINISHED")
+                return {"FINISHED"}
             # nothing is rendering and there are items in queue
             elif rendering is False:
                 bpy.context.view_layer.update()
 
-                sc = context.scene
-                cameraName = renderQueue[0]
+                scene = context.scene
+                queueItem = renderQueue[0]
+                cameraName = queueItem['camera']
+                frameStart = queueItem['frameStart']
+                frameEnd = queueItem['frameEnd']
 
-                if sc.baseOutputPath:
-                    sc.render.filepath = sc.baseOutputPath # restore base output path
-                
+                if scene.baseOutputPath:
+                    scene.render.filepath = scene.baseOutputPath  # restore base output path
+
                 # change scene active camera
-                if cameraName in sc.objects:
-                    sc.camera = bpy.data.objects[cameraName]
+                if cameraName in scene.objects:
+                    scene.camera = bpy.data.objects[cameraName]
                 else:
-                    self.report({'ERROR_INVALID_INPUT'}, message="Can not find camera " + cameraName + " in scene!")
+                    self.report(
+                        {'ERROR_INVALID_INPUT'}, message="Can not find camera " + cameraName + " in scene!")
                     return {'CANCELLED'}
-                    
+
                 self.report({"INFO"}, "Rendering camera: " + cameraName)
                 # set output file path as base path + camera name
-                original_output_dir = bpy.context.scene.render.filepath
-                output_dir = bpy.context.scene.render.filepath
+                original_output_dir = scene.render.filepath
+                output_dir = scene.render.filepath
                 if not os.path.exists(os.path.join(output_dir, cameraName)):
                     os.makedirs(os.path.join(output_dir, cameraName))
-                bpy.context.scene.render.filepath = os.path.join(output_dir, cameraName, '')
+                scene.render.filepath = os.path.join(
+                    output_dir, cameraName, '')
+                scene.frame_start = frameStart
+                scene.frame_end = frameEnd
 
-                sc.baseOutputPath = original_output_dir
+                scene.baseOutputPath = original_output_dir
                 bpy.context.view_layer.update()
                 # start new render
                 bpy.ops.render.render("INVOKE_DEFAULT", animation=True)
@@ -382,10 +453,12 @@ class ObjectOTSetStereoCameras(bpy.types.Operator):
         base_camera = scene.camera
 
         # add a new left camera
-        left_cam_data, left_cam_obj = CameraUtils.create_child_camera('_L', base_camera)
+        left_cam_data, left_cam_obj = CameraUtils.create_child_camera(
+            '_L', base_camera)
 
         # add a new right camera
-        right_cam_data, right_cam_obj = CameraUtils.create_child_camera('_R', base_camera)
+        right_cam_data, right_cam_obj = CameraUtils.create_child_camera(
+            '_R', base_camera)
 
         # temp location
         # set the left camera
@@ -443,7 +516,8 @@ class ObjectOTSetMatrixCameras(bpy.types.Operator):
         for y_idx in range(h_amount):
             for x_idx in range(w_amount):
                 suffix = '_Y' + str(y_idx) + '_X' + str(x_idx)
-                cam_data, cam_obj = CameraUtils.create_child_camera(suffix, base_camera)
+                cam_data, cam_obj = CameraUtils.create_child_camera(
+                    suffix, base_camera)
 
                 cam_data.angle = base_camera.data.angle
                 cam_data.clip_start = base_camera.data.clip_start
@@ -452,7 +526,8 @@ class ObjectOTSetMatrixCameras(bpy.types.Operator):
                 # cam.dof_object = center_cam.data.dof_object
                 cam_data.shift_y = base_camera.data.shift_y
                 cam_data.shift_x = base_camera.data.shift_x
-                cam_obj.location = (x_idx * base_camera.matrix_horizontal_distance) / 100, (y_idx * base_camera.matrix_vertical_distance) / 100, 0
+                cam_obj.location = (x_idx * base_camera.matrix_horizontal_distance) / \
+                    100, (y_idx * base_camera.matrix_vertical_distance) / 100, 0
                 cam_obj.rotation_euler = (0.0, 0.0, 0.0)
 
         return {'FINISHED'}
@@ -483,9 +558,11 @@ classes = (
     OUTPUT_PT_multicam_panel
 )
 
+
 def register():
     for c in classes:
         bpy.utils.register_class(c)
+
 
 def unregister():
     for c in classes:
