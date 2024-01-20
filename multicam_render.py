@@ -226,18 +226,19 @@ class OBJECT_PT_multicam_panel(bpy.types.Panel):
         camera = context.scene.camera
         row1 = self.layout.grid_flow(
             columns=2, even_columns=False, even_rows=False, align=True)
+
         column1 = row1.column()
         column1.alignment = "RIGHT"
         column1.label(text="Convergent")
-        column1.label(text="Zero Parallax")
+        if camera.is_convergent:
+            column1.label(text="Zero Parallax")
         column1.label(text="Cameras spacing")
 
         column2 = row1.column()
         column2.prop(camera, "is_convergent", text="")  # , toggle=-1
-        column2.prop(camera, "stereo_focal_distance", text="", slider=True)
+        if camera.is_convergent:
+            column2.prop(camera, "stereo_focal_distance", text="", slider=True)
         column2.prop(camera, "cameras_spacing", text="", slider=True)
-
-        row3 = self.layout.row()
 
     def draw_matrix_camera_sub_layout(self, context):
         camera = context.scene.camera
@@ -256,8 +257,6 @@ class OBJECT_PT_multicam_panel(bpy.types.Panel):
         column2.prop(camera, "matrix_vertical_distance", text="", slider=True)
         column2.prop(camera, "matrix_horizontal_distance",
                      text="", slider=True)
-
-        row2 = self.layout.row()
 
     def draw_mesh_camera_sub_layout(self, context):
         column = self.layout.column()
