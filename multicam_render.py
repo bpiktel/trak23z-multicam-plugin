@@ -1,6 +1,7 @@
 import bpy
 import os
 import json
+import math
 
 bl_info = {
     "category": "Camera",
@@ -32,6 +33,9 @@ class CameraUtils():
 
         for name in del_names:
             bpy.data.cameras.remove(bpy.data.cameras[name], do_unlink=True)
+
+        for constraint in base_camera.constraints:
+            base_camera.constraints.remove(constraint)
 
     @staticmethod
     def create_child_camera(suffix, parent):
@@ -92,6 +96,7 @@ class OBJECT_PT_multicam_panel(bpy.types.Panel):
         default=False
     )
 
+    # Stereo camera properties
     bpy.types.Object.stereo_focal_distance = bpy.props.FloatProperty(
         attr="stereo_focal_distance",
         name="stereo_focal_distance",
@@ -100,6 +105,7 @@ class OBJECT_PT_multicam_panel(bpy.types.Panel):
         update=update_camera_type
     )
 
+    # Matrix camera properties
     bpy.types.Object.matrix_vertical_distance = bpy.props.IntProperty(
         attr="matrix_vertical_distance",
         name="matrix_vertical_distance",
@@ -132,7 +138,51 @@ class OBJECT_PT_multicam_panel(bpy.types.Panel):
         update=update_camera_type
     )
 
+    # Mesh camera properties
+    bpy.types.Object.pattern_type = bpy.props.EnumProperty(
+        attr="pattern_type",
+        items=(("ORBIT", "Orbit", "Orbit around object"),
+               ("SPHERE", "Sphere", "Sphere of cameras around object")),
+        name="pattern_type",
+        description="Pattern type (orbit / sphere) for mesh camera",
+        default="ORBIT",
+        update=update_camera_type
+    )
+
+    bpy.types.Object.target_object = bpy.props.StringProperty(
+        attr="target_object",
+        name="target_object",
+        description="Target object for mesh camera",
+        default="",
+        update=update_camera_type
+    )
+
+    bpy.types.Object.radius = bpy.props.FloatProperty(
+        attr="radius",
+        name="radius",
+        description="Radius of mesh camera",
+        min=0.0, soft_min=0.0, max=1000, soft_max=1000, default=5,
+        update=update_camera_type
+    )
+
+    bpy.types.Object.mesh_horizontal_amount = bpy.props.IntProperty(
+        attr="mesh_horizontal_amount",
+        name="mesh_horizontal_amount",
+        description="Amount of cameras in horizontal axis",
+        min=2, soft_min=0, max=100, soft_max=30, default=4,
+        update=update_camera_type
+    )
+
+    bpy.types.Object.mesh_vertical_amount = bpy.props.IntProperty(
+        attr="mesh_vertical_amount",
+        name="mesh_vertical_amount",
+        description="Amount of cameras in vertical axis",
+        min=2, soft_min=0, max=100, soft_max=30, default=4,
+        update=update_camera_type
+    )
+
     # user interface
+
     def draw(self, context):
         layout = self.layout
 
@@ -189,7 +239,22 @@ class OBJECT_PT_multicam_panel(bpy.types.Panel):
         row2 = self.layout.row()
 
     def draw_mesh_camera_sub_layout(self, context):
-        row = self.layout.row()
+        column = self.layout.column()
+
+        row1 = column.row()
+        row1.prop(context.scene.camera, "pattern_type",
+                  text="Pattern Type", expand=True)
+
+        row2 = column.row()
+        row2.prop_search(context.scene.camera, "target_object",
+                         context.scene, "objects", text="Target Object")
+
+        row3 = column.row()
+        row3.prop(context.scene.camera, "radius", text="Radius")
+
+        row4 = column.row()
+        row4.prop(context.scene.camera, "mesh_horizontal_amount",
+                  text="Horizontal amount", slider=True)
 
 
 class OUTPUT_PT_multicam_panel(bpy.types.Panel):
@@ -507,8 +572,6 @@ class ObjectOTSetStereoCameras(bpy.types.Operator):
         # select the center camera (object mode)
         bpy.ops.object.select_all(action='DESELECT')
         base_camera.select_set(True)
-        bpy.context.scene.objects.active = base_camera
-        # tmp_camera.select = True
 
         return {'FINISHED'}
 
@@ -562,6 +625,34 @@ class ObjectOTSetMeshCameras(bpy.types.Operator):
         return {'FINISHED'}
 
     def set_camera(self, context):
+        CameraUtils.reset_multicamera(context)
+        scene = context.scene
+        base_camera = scene.camera
+
+        target = bpy.data.objects[base_camera.target_object]
+        radius = base_camera.radius
+
+        target_pos = target.matrix_world.translation
+
+        for i in range(base_camera.mesh_horizontal_amount):
+            angle = (i / base_camera.mesh_horizontal_amount) * 2 * math.pi
+            new_camera_pos = (radius * math.cos(angle) + target_pos[0],
+                              radius * math.sin(angle) + target_pos[1], target_pos[2])
+            suffix = '_R' + str(i)
+            cam_data, cam_obj = CameraUtils.create_child_camera(
+                suffix, base_camera)
+
+            cam_obj.matrix_world.translation = new_camera_pos
+
+            track_to = cam_obj.constraints.new('TRACK_TO')
+            track_to.target = target
+            track_to.track_axis = 'TRACK_NEGATIVE_Z'
+            track_to.up_axis = 'UP_Y'
+
+        # select the center camera (object mode)
+        bpy.ops.object.select_all(action='DESELECT')
+        base_camera.select_set(True)
+
         return {'FINISHED'}
 
 
