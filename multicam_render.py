@@ -160,7 +160,8 @@ class OBJECT_PT_multicam_panel(bpy.types.Panel):  # noqa
     bpy.types.Object.pattern_type = bpy.props.EnumProperty(
         attr="pattern_type",
         items=(("ORBIT", "Orbit", "Orbit around object"),
-               ("SPHERE", "Sphere", "Sphere of cameras around object")),
+               ("SPHERE", "Sphere", "Sphere of cameras around object"),
+               ("OPTIMAL", "Optimal", "Minimal amount of cameras to show whole object")),
         name="pattern_type",
         description="Pattern type (orbit / sphere) for mesh camera",
         default="ORBIT",
@@ -220,6 +221,14 @@ class OBJECT_PT_multicam_panel(bpy.types.Panel):  # noqa
         name="mesh_sphere_cameras_amount",
         description="Amount of cameras around the object",
         min=2, soft_min=0, max=100, soft_max=100, default=6,
+        update=update_camera_type
+    )
+
+    bpy.types.Object.mesh_optimal_z_rotation_offset = bpy.props.FloatProperty(
+        attr="mesh_optimal_z_rotation_offset",
+        name="mesh_optimal_z_rotation_offset",
+        description="Offset of optimal rotation around z axis",
+        min=0.0, soft_min=0.0, max=360.0, soft_max=360.0, default=0.0,
         update=update_camera_type
     )
 
@@ -296,9 +305,9 @@ class OBJECT_PT_multicam_panel(bpy.types.Panel):  # noqa
         row2.prop_search(context.scene.camera, "target_object",
                          context.scene, "objects", text="Target Object")
 
-        row3 = column.row()
-        row3.prop(context.scene.camera, "radius", text="Radius")
         if camera.pattern_type == "ORBIT":
+            row3 = column.row()
+            row3.prop(context.scene.camera, "radius", text="Radius")
             row4 = column.row()
             row4.prop(context.scene.camera, "mesh_orbit_cameras_amount",
                       text="Cameras amount", slider=True)
@@ -313,9 +322,16 @@ class OBJECT_PT_multicam_panel(bpy.types.Panel):  # noqa
                       text="Tilt y", slider=True)
 
         if camera.pattern_type == "SPHERE":
+            row3 = column.row()
+            row3.prop(context.scene.camera, "radius", text="Radius")
             row5 = column.row()
             row5.prop(context.scene.camera, "mesh_sphere_cameras_amount",
                       text="Cameras amount", slider=True)
+
+        if camera.pattern_type == "OPTIMAL":
+            row3 = column.row()
+            row3.prop(context.scene.camera,
+                      "mesh_optimal_z_rotation_offset", text="Z rotation offset", slider=True)
 
 
 class OUTPUT_PT_multicam_panel(bpy.types.Panel):  # noqa
@@ -711,6 +727,12 @@ class ObjectOTSetMeshCameras(bpy.types.Operator):
 
         return points
 
+    def track_camera_to_object(self, camera, target):
+        track_to = camera.constraints.new('TRACK_TO')
+        track_to.target = target
+        track_to.track_axis = 'TRACK_NEGATIVE_Z'
+        track_to.up_axis = 'UP_Y'
+
     def set_camera(self, context):
         CameraUtils.reset_multicamera(context)
         scene = context.scene
@@ -746,11 +768,8 @@ class ObjectOTSetMeshCameras(bpy.types.Operator):
 
                     cam_obj.matrix_world.translation = new_camera_pos
 
-                    track_to = cam_obj.constraints.new('TRACK_TO')
-                    track_to.target = target
-                    track_to.track_axis = 'TRACK_NEGATIVE_Z'
-                    track_to.up_axis = 'UP_Y'
-            else:
+                    self.track_camera_to_object(cam_obj, target)
+            if base_camera.pattern_type == "SPHERE":
                 points = self.fibonacci_sphere(
                     base_camera.mesh_sphere_cameras_amount)
                 for i in range(base_camera.mesh_sphere_cameras_amount):
@@ -763,14 +782,46 @@ class ObjectOTSetMeshCameras(bpy.types.Operator):
 
                     cam_obj.matrix_world.translation = new_camera_pos
 
-                    track_to = cam_obj.constraints.new('TRACK_TO')
-                    track_to.target = target
-                    track_to.track_axis = 'TRACK_NEGATIVE_Z'
-                    track_to.up_axis = 'UP_Y'
+                    self.track_camera_to_object(cam_obj, target)
+            if base_camera.pattern_type == "OPTIMAL":
+                mesh_optimal_z_rotation_offset = base_camera.mesh_optimal_z_rotation_offset
+                angles = [
+                    (0, 0, 0),
+                    (0, 0, 90),
+                    (0, 0, 180),
+                    (0, 0, 270),
+                    (0, 90, 0),
+                    (0, -90, 0)
+                ]
+                for i in range(len(angles)):
+                    angle = angles[i]
+                    local_camera_pos = Vector((1, 0, 0))
+                    eul = Euler((math.radians(angle[0]), math.radians(angle[1]),
+                                math.radians(angle[2] + mesh_optimal_z_rotation_offset)), 'XYZ')
+                    local_camera_pos.rotate(eul)
+
+                    new_camera_pos = (local_camera_pos[0] + target_pos[0], local_camera_pos[1] +
+                                      target_pos[1], local_camera_pos[2] + target_pos[2])
+
+                    suffix = '_' + str(i)
+                    cam_data, cam_obj = CameraUtils.create_child_camera(
+                        suffix, base_camera)
+
+                    cam_obj.matrix_world.translation = new_camera_pos
+
+                    self.track_camera_to_object(cam_obj, target)
+
+                    # set the camera
+                    context.scene.camera = cam_obj
+                    bpy.ops.object.select_all(action='DESELECT')
+                    target.select_set(True)
+                    bpy.ops.view3d.camera_to_view_selected()
 
             # select the center camera (object mode)
             bpy.ops.object.select_all(action='DESELECT')
+            context.scene.camera = base_camera
             base_camera.select_set(True)
+            bpy.context.view_layer.objects.active = base_camera
 
         return {'FINISHED'}
 
