@@ -728,8 +728,8 @@ class ObjectOTSetMeshCameras(bpy.types.Operator):
                 orbit_tilt_y = base_camera.orbit_tilt_y
 
                 for i in range(base_camera.mesh_orbit_cameras_amount):
-                    angle = (i / base_camera.mesh_orbit_cameras_amount) * \
-                        2 * math.pi + orbit_rotation_offset
+                    angle = (i / base_camera.mesh_orbit_cameras_amount +
+                             orbit_rotation_offset / 360) * 2 * math.pi
                     local_camera_pos = (radius * math.cos(angle),
                                         radius * math.sin(angle), 0)
                     local_camera_pos = Vector(local_camera_pos)
