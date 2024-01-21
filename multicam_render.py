@@ -17,7 +17,7 @@ bl_info = {
 DEFAULT_CAMERA_NAME = "Camera"
 
 
-class CameraUtils():
+class CameraUtils:
     @staticmethod
     def reset_multicamera(context):
         # reset multicamera by deleting all children
@@ -343,13 +343,13 @@ class OUTPUT_PT_multicam_panel(bpy.types.Panel):
         return context.active_object is not None and context.active_object.type == 'CAMERA' and context.active_object.camera_type != 'SINGLE'
 
     @staticmethod
-    def isVideoRender(format):
+    def isVideoRender(video_format):
         videoFormats = [
             'AVI_JPEG',
             'AVI_RAW',
             'FFMPEG'
         ]
-        return format in videoFormats
+        return video_format in videoFormats
 
     def draw(self, context):
         scene = context.scene
