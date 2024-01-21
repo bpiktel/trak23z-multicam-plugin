@@ -2,6 +2,7 @@ import bpy
 import os
 import json
 import math
+from mathutils import Vector, Euler
 
 bl_info = {
     "category": "Camera",
@@ -182,19 +183,35 @@ class OBJECT_PT_multicam_panel(bpy.types.Panel):  # noqa
         update=update_camera_type
     )
 
-    bpy.types.Object.mesh_horizontal_amount = bpy.props.IntProperty(
-        attr="mesh_horizontal_amount",
-        name="mesh_horizontal_amount",
-        description="Amount of cameras in horizontal axis",
+    bpy.types.Object.mesh_orbit_cameras_amount = bpy.props.IntProperty(
+        attr="mesh_orbit_cameras_amount",
+        name="mesh_orbit_cameras_amount",
+        description="Amount of cameras on orbit",
         min=2, soft_min=0, max=100, soft_max=30, default=4,
         update=update_camera_type
     )
 
-    bpy.types.Object.mesh_vertical_amount = bpy.props.IntProperty(
-        attr="mesh_vertical_amount",
-        name="mesh_vertical_amount",
-        description="Amount of cameras in vertical axis",
-        min=2, soft_min=0, max=100, soft_max=30, default=4,
+    bpy.types.Object.orbit_rotation_offset = bpy.props.FloatProperty(
+        attr="orbit_rotation_offset",
+        name="orbit_rotation_offset",
+        description="Offset of orbit rotation",
+        min=0.0, soft_min=0.0, max=360.0, soft_max=360.0, default=0.0,
+        update=update_camera_type
+    )
+
+    bpy.types.Object.orbit_tilt_x = bpy.props.FloatProperty(
+        attr="orbit_tilt_x",
+        name="orbit_tilt_x",
+        description="Tilt around x axis of orbit",
+        min=-360.0, soft_min=-360.0, max=360.0, soft_max=360.0, default=0.0,
+        update=update_camera_type
+    )
+
+    bpy.types.Object.orbit_tilt_y = bpy.props.FloatProperty(
+        attr="orbit_tilt_y",
+        name="orbit_tilt_y",
+        description="Tilt around y axis of orbit",
+        min=-360.0, soft_min=-360.0, max=360.0, soft_max=360.0, default=0.0,
         update=update_camera_type
     )
 
@@ -283,13 +300,23 @@ class OBJECT_PT_multicam_panel(bpy.types.Panel):  # noqa
         row3.prop(context.scene.camera, "radius", text="Radius")
         if camera.pattern_type == "ORBIT":
             row4 = column.row()
-            row4.prop(context.scene.camera, "mesh_horizontal_amount",
-                      text="Horizontal amount", slider=True)
+            row4.prop(context.scene.camera, "mesh_orbit_cameras_amount",
+                      text="Cameras amount", slider=True)
+            row5 = column.row()
+            row5.prop(context.scene.camera, "orbit_rotation_offset",
+                      text="Rotation offset", slider=True)
+            row6 = column.row()
+            row6.prop(context.scene.camera, "orbit_tilt_x",
+                      text="Tilt x", slider=True)
+            row7 = column.row()
+            row7.prop(context.scene.camera, "orbit_tilt_y",
+                      text="Tilt y", slider=True)
 
         if camera.pattern_type == "SPHERE":
             row5 = column.row()
             row5.prop(context.scene.camera, "mesh_sphere_cameras_amount",
                       text="Cameras amount", slider=True)
+
 
 class OUTPUT_PT_multicam_panel(bpy.types.Panel):  # noqa
     # panel location
@@ -572,7 +599,8 @@ class ObjectOTSetStereoCameras(bpy.types.Operator):
         is_convergent = base_camera.is_convergent
 
         camera_offset = base_camera.cameras_spacing / 2
-        angle = (math.pi / 2 - math.atan(base_camera.stereo_focal_distance / camera_offset)) if is_convergent else 0
+        angle = (math.pi / 2 - math.atan(base_camera.stereo_focal_distance /
+                 camera_offset)) if is_convergent else 0
 
         # add a new left camera
         left_cam_data, left_cam_obj = CameraUtils.create_child_camera(
@@ -590,7 +618,8 @@ class ObjectOTSetStereoCameras(bpy.types.Operator):
         # left_cam.dof_distance = center_cam.data.dof_distance
         # left_cam.dof_object = center_cam.data.dof_object
         left_cam_data.shift_y = base_camera.data.shift_y
-        left_cam_data.shift_x = base_camera.data.shift_x  # (1 / 2) + base_camera.data.shift_x
+        # (1 / 2) + base_camera.data.shift_x
+        left_cam_data.shift_x = base_camera.data.shift_x
         left_cam_obj.location = -camera_offset / 100, 0, 0
         left_cam_obj.rotation_euler = (0.0, -angle, 0.0)  # reset
 
@@ -601,7 +630,8 @@ class ObjectOTSetStereoCameras(bpy.types.Operator):
         # right_cam.dof_distance = center_cam.data.dof_distance
         # right_cam.dof_object = center_cam.data.dof_object
         right_cam_data.shift_y = base_camera.data.shift_y
-        right_cam_data.shift_x = base_camera.data.shift_x  # -(1 / 2) + base_camera.data.shift_x
+        # -(1 / 2) + base_camera.data.shift_x
+        right_cam_data.shift_x = base_camera.data.shift_x
         right_cam_obj.location = camera_offset / 100, 0, 0
         right_cam_obj.rotation_euler = (0.0, angle, 0.0)  # reset
 
@@ -693,11 +723,24 @@ class ObjectOTSetMeshCameras(bpy.types.Operator):
             target_pos = target.matrix_world.translation
 
             if base_camera.pattern_type == "ORBIT":
-                for i in range(base_camera.mesh_horizontal_amount):
-                    angle = (i / base_camera.mesh_horizontal_amount) * 2 * math.pi
-                    new_camera_pos = (radius * math.cos(angle) + target_pos[0],
-                                      radius * math.sin(angle) + target_pos[1], target_pos[2])
-                    suffix = '_R' + str(i)
+                orbit_rotation_offset = base_camera.orbit_rotation_offset
+                orbit_tilt_x = base_camera.orbit_tilt_x
+                orbit_tilt_y = base_camera.orbit_tilt_y
+
+                for i in range(base_camera.mesh_orbit_cameras_amount):
+                    angle = (i / base_camera.mesh_orbit_cameras_amount) * \
+                        2 * math.pi + orbit_rotation_offset
+                    local_camera_pos = (radius * math.cos(angle),
+                                        radius * math.sin(angle), 0)
+                    local_camera_pos = Vector(local_camera_pos)
+                    eul = Euler((math.radians(orbit_tilt_x), math.radians(orbit_tilt_y),
+                                math.radians(0)), 'XYZ')
+                    local_camera_pos.rotate(eul)
+
+                    new_camera_pos = (local_camera_pos[0] + target_pos[0], local_camera_pos[1] +
+                                      target_pos[1], local_camera_pos[2] + target_pos[2])
+
+                    suffix = '_O' + str(i)
                     cam_data, cam_obj = CameraUtils.create_child_camera(
                         suffix, base_camera)
 
@@ -708,7 +751,8 @@ class ObjectOTSetMeshCameras(bpy.types.Operator):
                     track_to.track_axis = 'TRACK_NEGATIVE_Z'
                     track_to.up_axis = 'UP_Y'
             else:
-                points = self.fibonacci_sphere(base_camera.mesh_sphere_cameras_amount)
+                points = self.fibonacci_sphere(
+                    base_camera.mesh_sphere_cameras_amount)
                 for i in range(base_camera.mesh_sphere_cameras_amount):
                     new_camera_pos = (points[i][0] * radius + target_pos[0],
                                       points[i][1] * radius + target_pos[1],
