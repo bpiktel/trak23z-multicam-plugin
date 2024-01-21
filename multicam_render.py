@@ -54,7 +54,7 @@ class CameraUtils:
         return cam_data, cam_obj
 
 
-class OBJECT_PT_multicam_panel(bpy.types.Panel):
+class OBJECT_PT_multicam_panel(bpy.types.Panel):  # noqa
     # panel location
     bl_space_type = "PROPERTIES"
     bl_region_type = "WINDOW"
@@ -278,7 +278,7 @@ class OBJECT_PT_multicam_panel(bpy.types.Panel):
                   text="Horizontal amount", slider=True)
 
 
-class OUTPUT_PT_multicam_panel(bpy.types.Panel):
+class OUTPUT_PT_multicam_panel(bpy.types.Panel):  # noqa
     # panel location
     bl_space_type = "PROPERTIES"
     bl_region_type = "WINDOW"
