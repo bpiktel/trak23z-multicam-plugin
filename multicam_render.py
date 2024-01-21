@@ -111,7 +111,7 @@ class OBJECT_PT_multicam_panel(bpy.types.Panel):  # noqa
         attr="stereo_focal_distance",
         name="stereo_focal_distance",
         description="Distance to the Stereo-Window (Zero Parallax) in Blender Units",
-        min=0.0, soft_min=0.0, max=1000, soft_max=1000, default=20,
+        min=0.01, soft_min=0.01, max=1000, soft_max=1000, default=20,
         update=update_camera_type
     )
 
@@ -119,7 +119,7 @@ class OBJECT_PT_multicam_panel(bpy.types.Panel):  # noqa
         attr="cameras_spacing",
         name="cameras_spacing",
         description="Distance between the cameras in Blender Units",
-        min=0.0, soft_min=0.0, max=1000, soft_max=1000, default=20,
+        min=0.01, soft_min=0.01, max=1000, soft_max=1000, default=20,
         update=update_camera_type
     )
 
