@@ -32,7 +32,8 @@ class CameraUtils:
             bpy.ops.object.delete()
 
         for name in del_names:
-            bpy.data.cameras.remove(bpy.data.cameras[name], do_unlink=True)
+            if camera_name := bpy.data.cameras.get(name):
+                bpy.data.cameras.remove(camera_name, do_unlink=True)
 
         for constraint in base_camera.constraints:
             base_camera.constraints.remove(constraint)
@@ -654,29 +655,31 @@ class ObjectOTSetMeshCameras(bpy.types.Operator):
         scene = context.scene
         base_camera = scene.camera
 
-        target = bpy.data.objects[base_camera.target_object]
-        radius = base_camera.radius
+        target = bpy.data.objects.get(base_camera.target_object)
 
-        target_pos = target.matrix_world.translation
+        if target:
+            radius = base_camera.radius
 
-        for i in range(base_camera.mesh_horizontal_amount):
-            angle = (i / base_camera.mesh_horizontal_amount) * 2 * math.pi
-            new_camera_pos = (radius * math.cos(angle) + target_pos[0],
-                              radius * math.sin(angle) + target_pos[1], target_pos[2])
-            suffix = '_R' + str(i)
-            cam_data, cam_obj = CameraUtils.create_child_camera(
-                suffix, base_camera)
+            target_pos = target.matrix_world.translation
 
-            cam_obj.matrix_world.translation = new_camera_pos
+            for i in range(base_camera.mesh_horizontal_amount):
+                angle = (i / base_camera.mesh_horizontal_amount) * 2 * math.pi
+                new_camera_pos = (radius * math.cos(angle) + target_pos[0],
+                                  radius * math.sin(angle) + target_pos[1], target_pos[2])
+                suffix = '_R' + str(i)
+                cam_data, cam_obj = CameraUtils.create_child_camera(
+                    suffix, base_camera)
 
-            track_to = cam_obj.constraints.new('TRACK_TO')
-            track_to.target = target
-            track_to.track_axis = 'TRACK_NEGATIVE_Z'
-            track_to.up_axis = 'UP_Y'
+                cam_obj.matrix_world.translation = new_camera_pos
 
-        # select the center camera (object mode)
-        bpy.ops.object.select_all(action='DESELECT')
-        base_camera.select_set(True)
+                track_to = cam_obj.constraints.new('TRACK_TO')
+                track_to.target = target
+                track_to.track_axis = 'TRACK_NEGATIVE_Z'
+                track_to.up_axis = 'UP_Y'
+
+            # select the center camera (object mode)
+            bpy.ops.object.select_all(action='DESELECT')
+            base_camera.select_set(True)
 
         return {'FINISHED'}
 
