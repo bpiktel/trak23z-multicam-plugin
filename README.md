@@ -91,12 +91,44 @@ In the picture above the amount and distance parameters were set to (15, 15) and
 
 ### Mesh camera
 
+The mesh mode comes in 3 variants.
+
 #### Orbit mode
-![stereo camera mode](./docs/images/modes/mesh/mesh-orbit-mode.png)
+![mesh camera mode - orbit](./docs/images/modes/mesh/mesh-orbit-mode.png)
+
+The orbit mode of mesh camera allows you to surround chosen object with a ring of cameras.
+You can determine the radius of the ring, amount of cameras and rotation offset.
+Additionally, the whole setup can be tilted along x or y-axis.
+
+![mesh camera mode - orbit; radius 5, 4 cameras, offset 0, tilt (0, 0)](./docs/images/modes/mesh/mesh-orbit-5-4-0-0-0.png)
+In the picture above the parameters were set to: radius - 5, cameras - 4, offset - 0, tilt - (0, 0).
+
+![mesh camera mode - orbit; radius 7, 20 cameras, offset 0, tilt (-20, 0)](./docs/images/modes/mesh/mesh-orbit-7-20-0--20-0.png)
+In the picture above the parameters were set to: radius - 7, cameras - 20, offset - 0, tilt - (-20, 0).
+
+![mesh camera mode - orbit; radius 9, 30 cameras, offset 0, tilt (-20, -60)](./docs/images/modes/mesh/mesh-orbit-9-30-0--20--60.png)
+In the picture above the parameters were set to: radius - 9, cameras - 30, offset - 0, tilt - (-20, -60).
+
 
 #### Sphere mode
-![stereo camera mode](./docs/images/modes/mesh/mesh-sphere-mode.png)``
+![mesh camera mode - sphere](./docs/images/modes/mesh/mesh-sphere-mode.png)
 
+The sphere mode allows to enclose the object with a sphere of cameras.
+You can change the `Radius` and `Cameras amount` parameters.
+
+![mesh camera mode - sphere; radius 5, 6 cameras](./docs/images/modes/mesh/mesh-sphere-5-6.png)
+In the picture above the radius was set to 5 while there were 6 cameras.
+
+![mesh camera mode - sphere; radius 7, 100 cameras](./docs/images/modes/mesh/mesh-sphere-7-100.png)
+In the picture above the radius was set to 7 while there were 100 cameras.
+
+
+#### Optimal mode
+![mesh optimal camera mode](./docs/images/modes/mesh/mesh-optimal-mode.png)
+
+
+This mode tries to optimise the position of the cameras to picture the whole object in each of the 6 cameras.
+You can change the rotation offset along z-axis to meet your preferences.
 
 
 ### Rendering
