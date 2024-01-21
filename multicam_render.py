@@ -198,6 +198,14 @@ class OBJECT_PT_multicam_panel(bpy.types.Panel):  # noqa
         update=update_camera_type
     )
 
+    bpy.types.Object.mesh_sphere_cameras_amount = bpy.props.IntProperty(
+        attr="mesh_sphere_cameras_amount",
+        name="mesh_sphere_cameras_amount",
+        description="Amount of cameras around the object",
+        min=2, soft_min=0, max=100, soft_max=100, default=6,
+        update=update_camera_type
+    )
+
     # user interface
 
     def draw(self, context):
@@ -260,6 +268,7 @@ class OBJECT_PT_multicam_panel(bpy.types.Panel):  # noqa
                      text="", slider=True)
 
     def draw_mesh_camera_sub_layout(self, context):
+        camera = context.scene.camera
         column = self.layout.column()
 
         row1 = column.row()
@@ -272,11 +281,15 @@ class OBJECT_PT_multicam_panel(bpy.types.Panel):  # noqa
 
         row3 = column.row()
         row3.prop(context.scene.camera, "radius", text="Radius")
+        if camera.pattern_type == "ORBIT":
+            row4 = column.row()
+            row4.prop(context.scene.camera, "mesh_horizontal_amount",
+                      text="Horizontal amount", slider=True)
 
-        row4 = column.row()
-        row4.prop(context.scene.camera, "mesh_horizontal_amount",
-                  text="Horizontal amount", slider=True)
-
+        if camera.pattern_type == "SPHERE":
+            row5 = column.row()
+            row5.prop(context.scene.camera, "mesh_sphere_cameras_amount",
+                      text="Cameras amount", slider=True)
 
 class OUTPUT_PT_multicam_panel(bpy.types.Panel):  # noqa
     # panel location
@@ -650,6 +663,24 @@ class ObjectOTSetMeshCameras(bpy.types.Operator):
         self.set_camera(context)
         return {'FINISHED'}
 
+    def fibonacci_sphere(self, samples):
+
+        points = []
+        phi = math.pi * (math.sqrt(5.) - 1.)  # golden angle in radians
+
+        for i in range(samples):
+            y = 1 - (i / float(samples - 1)) * 2  # y goes from 1 to -1
+            radius = math.sqrt(1 - y * y)  # radius at y
+
+            theta = phi * i  # golden angle increment
+
+            x = math.cos(theta) * radius
+            z = math.sin(theta) * radius
+
+            points.append((x, y, z))
+
+        return points
+
     def set_camera(self, context):
         CameraUtils.reset_multicamera(context)
         scene = context.scene
@@ -659,23 +690,39 @@ class ObjectOTSetMeshCameras(bpy.types.Operator):
 
         if target:
             radius = base_camera.radius
-
             target_pos = target.matrix_world.translation
 
-            for i in range(base_camera.mesh_horizontal_amount):
-                angle = (i / base_camera.mesh_horizontal_amount) * 2 * math.pi
-                new_camera_pos = (radius * math.cos(angle) + target_pos[0],
-                                  radius * math.sin(angle) + target_pos[1], target_pos[2])
-                suffix = '_R' + str(i)
-                cam_data, cam_obj = CameraUtils.create_child_camera(
-                    suffix, base_camera)
+            if base_camera.pattern_type == "ORBIT":
+                for i in range(base_camera.mesh_horizontal_amount):
+                    angle = (i / base_camera.mesh_horizontal_amount) * 2 * math.pi
+                    new_camera_pos = (radius * math.cos(angle) + target_pos[0],
+                                      radius * math.sin(angle) + target_pos[1], target_pos[2])
+                    suffix = '_R' + str(i)
+                    cam_data, cam_obj = CameraUtils.create_child_camera(
+                        suffix, base_camera)
 
-                cam_obj.matrix_world.translation = new_camera_pos
+                    cam_obj.matrix_world.translation = new_camera_pos
 
-                track_to = cam_obj.constraints.new('TRACK_TO')
-                track_to.target = target
-                track_to.track_axis = 'TRACK_NEGATIVE_Z'
-                track_to.up_axis = 'UP_Y'
+                    track_to = cam_obj.constraints.new('TRACK_TO')
+                    track_to.target = target
+                    track_to.track_axis = 'TRACK_NEGATIVE_Z'
+                    track_to.up_axis = 'UP_Y'
+            else:
+                points = self.fibonacci_sphere(base_camera.mesh_sphere_cameras_amount)
+                for i in range(base_camera.mesh_sphere_cameras_amount):
+                    new_camera_pos = (points[i][0] * radius + target_pos[0],
+                                      points[i][1] * radius + target_pos[1],
+                                      points[i][2] * radius + target_pos[2])
+                    suffix = '_' + str(i)
+                    cam_data, cam_obj = CameraUtils.create_child_camera(
+                        suffix, base_camera)
+
+                    cam_obj.matrix_world.translation = new_camera_pos
+
+                    track_to = cam_obj.constraints.new('TRACK_TO')
+                    track_to.target = target
+                    track_to.track_axis = 'TRACK_NEGATIVE_Z'
+                    track_to.up_axis = 'UP_Y'
 
             # select the center camera (object mode)
             bpy.ops.object.select_all(action='DESELECT')
