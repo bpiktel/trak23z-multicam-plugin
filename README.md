@@ -89,6 +89,15 @@ If you want to achieve the light field camera effect you should set the distance
 In the picture above the amount and distance parameters were set to (15, 15) and (20, 20) respectively.
 
 
+### Mesh camera
+
+#### Orbit mode
+![stereo camera mode](./docs/images/modes/mesh/mesh-orbit-mode.png)
+
+#### Sphere mode
+![stereo camera mode](./docs/images/modes/mesh/mesh-sphere-mode.png)``
+
+
 
 ### Rendering
 
@@ -97,9 +106,9 @@ You can find the rendering options in the `Output` tab of camera properties.
 ![Output plugin tab](./docs/images/output-tab.png)
 
 
-| `Frame by frame rendering` | Behaviour                                                       |
-|----------------------------|-----------------------------------------------------------------|
-| True                       | Renders each frame for each camera, then proceeds to next frame |
-| False                      | Renders all frames for a camera, then proceeds to next camera   |
+| `Frame by frame rendering` | Behaviour                                                           |
+|----------------------------|---------------------------------------------------------------------|
+| True                       | Renders each frame for each camera, then proceeds to the next frame |
+| False                      | Renders all frames for a camera, then proceeds to the next camera   |
 
 When `Copy main camera properties to all cameras` is checked, it does exactly what the name suggests.
