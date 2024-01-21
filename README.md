@@ -1,5 +1,10 @@
 # Blender Multi Camera Rendering Plugin
 
+## Authors
+* Paweł Müller ([@pawelmuller](https://github.com/pawelmuller))
+* Bartłomiej Piktel ([@bpiktel](https://github.com/bpiktel))
+* Grzegorz Rusinek ([@Kszesiek](https://github.com/Kszesiek))
+
 ## Installation
 
 In order to use the plugin in Blender you need to install it.
