@@ -413,6 +413,7 @@ class OUTPUT_PT_multicam_panel(bpy.types.Panel):  # noqa
         column = self.layout.column()
         row1 = column.row()
         if scene.rendering is True:
+            row1.label(text="Rendering in progress")
             row1.operator('multicam.cancel_rendering')
         else:
             row1.operator('multicam.render_multi_cameras')
@@ -519,12 +520,20 @@ class OutputOTRenderMultiCameras(bpy.types.Operator):
                 context.window_manager.event_timer_remove(self.timerEvent)
 
                 scene.renderQueue = json.dumps([])
+                scene.cancelRender = False
+                scene.rendering = False
                 # restore base output path
                 scene.render.filepath = scene.baseOutputPath
                 scene.baseOutputPath = ""
                 # restore selected frame range
                 scene.frame_start = scene.baseStartFrame
                 scene.frame_end = scene.baseEndFrame
+                bpy.context.view_layer.update()
+
+                # restore base camera
+                currentCamera = scene.camera
+                if currentCamera.multicam_child:
+                    scene.camera = currentCamera.parent
 
                 self.report({"INFO"}, "RENDER QUEUE FINISHED")
                 return {"FINISHED"}
@@ -578,6 +587,7 @@ class OutputOTCancelRendering(bpy.types.Operator):
 
     def execute(self, context):
         context.scene.cancelRender = True
+        context.scene.renderQueue = json.dumps([])
         return {'FINISHED'}
 
 
@@ -787,29 +797,22 @@ class ObjectOTSetMeshCameras(bpy.types.Operator):
                 mesh_optimal_z_rotation_offset = base_camera.mesh_optimal_z_rotation_offset
                 angles = [
                     (0, 0, 0),
-                    (0, 0, 90),
-                    (0, 0, 180),
-                    (0, 0, 270),
-                    (0, 90, 0),
-                    (0, -90, 0)
+                    (90, 0, 0),
+                    (-90, 180, 0),
+                    (0, 180, 0),
+                    (-90, 180, 90),
+                    (-90, 180, -90)
                 ]
                 for i in range(len(angles)):
                     angle = angles[i]
-                    local_camera_pos = Vector((1, 0, 0))
                     eul = Euler((math.radians(angle[0]), math.radians(angle[1]),
                                 math.radians(angle[2] + mesh_optimal_z_rotation_offset)), 'XYZ')
-                    local_camera_pos.rotate(eul)
-
-                    new_camera_pos = (local_camera_pos[0] + target_pos[0], local_camera_pos[1] +
-                                      target_pos[1], local_camera_pos[2] + target_pos[2])
 
                     suffix = '_' + str(i)
                     cam_data, cam_obj = CameraUtils.create_child_camera(
                         suffix, base_camera)
 
-                    cam_obj.matrix_world.translation = new_camera_pos
-
-                    self.track_camera_to_object(cam_obj, target)
+                    cam_obj.matrix_world = eul.to_matrix().to_4x4()
 
                     # set the camera
                     context.scene.camera = cam_obj
